@@ -4,16 +4,36 @@ from keras.optimizers import optimizer
 
 class RMSProp(optimizer.Optimizer):
 
-    def __init__(self, beta, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, beta=0.9,
+                 learning_rate=0.0001,
+                 name='custom_rmsprop',
+                 weight_decay=None,
+                 clipnorm=None,
+                 clipvalue=None,
+                 global_clipnorm=None,
+                 use_ema=False,
+                 ema_momentum=0.99,
+                 ema_overwrite_frequency=None,
+                 jit_compile=True,
+                 **kwargs):
+        super().__init__(name=name,
+                         weight_decay=weight_decay,
+                         clipnorm=clipnorm,
+                         clipvalue=clipvalue,
+                         global_clipnorm=global_clipnorm,
+                         use_ema=use_ema,
+                         ema_momentum=ema_momentum,
+                         ema_overwrite_frequency=ema_overwrite_frequency,
+                         jit_compile=jit_compile,
+                         **kwargs)
+        self._learning_rate = self._build_learning_rate(learning_rate)
+        self.beta = beta
+
         self._built = False
         self.var_list = None
         self.Eg_sq = None
-        self._learning_rate = 0.001
-        self.beta = beta
 
     def build(self, var_list):
-
         super().build(var_list)
         if hasattr(self, "_built") and self._built:
             return
@@ -30,4 +50,11 @@ class RMSProp(optimizer.Optimizer):
         variable.assign_sub((self.learning_rate * gradient) / sqrt(Eg))
 
     def get_config(self):
-        pass
+        config = super().get_config()
+        config.update({
+            "learning_rate": self._serialize_hyperparameter(
+                self._learning_rate
+            ),
+            "beta": self.beta
+        })
+        return config
