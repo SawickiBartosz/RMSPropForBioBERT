@@ -1,60 +1,51 @@
 from tensorflow.math import sqrt
-from keras.optimizers import optimizer
+from tensorflow import function
+from tensorflow.keras.optimizers import Optimizer
 
 
-class RMSProp(optimizer.Optimizer):
+# resource: https://github.com/ageron/handson-ml2/blob/master/12_custom_models_and_training_with_tensorflow.ipynb
+class RMSProp(Optimizer):
 
     def __init__(self, beta=0.9,
                  learning_rate=0.0001,
                  name='custom_rmsprop',
-                 weight_decay=None,
-                 clipnorm=None,
-                 clipvalue=None,
-                 global_clipnorm=None,
-                 use_ema=False,
-                 ema_momentum=0.99,
-                 ema_overwrite_frequency=None,
-                 jit_compile=True,
+                 eps=0.000001,
                  **kwargs):
         super().__init__(name=name,
-                         weight_decay=weight_decay,
-                         clipnorm=clipnorm,
-                         clipvalue=clipvalue,
-                         global_clipnorm=global_clipnorm,
-                         use_ema=use_ema,
-                         ema_momentum=ema_momentum,
-                         ema_overwrite_frequency=ema_overwrite_frequency,
-                         jit_compile=jit_compile,
                          **kwargs)
-        self._learning_rate = self._build_learning_rate(learning_rate)
-        self.beta = beta
+        self._set_hyper("learning_rate", kwargs.get("lr", learning_rate))  # handle lr=learning_rate
+        self._set_hyper("decay", self._initial_decay)
+        self._set_hyper("beta", beta)
+        self._set_hyper("eps", eps)
 
-        self._built = False
-        self.var_list = None
-        self.Eg_sq = None
-
-    def build(self, var_list):
-        super().build(var_list)
-        if hasattr(self, "_built") and self._built:
-            return
-        self._built = True
-        self.Eg_sq = []
+    def _create_slots(self, var_list):
+        """For each model variable, create the optimizer variable associated with it.
+        TensorFlow calls these optimizer variables "slots".
+        For momentum optimization, we need one momentum slot per model variable.
+        """
         for var in var_list:
-            self.Eg_sq.append(self.add_variable_from_reference(model_variable=var, variable_name="Eg_sq"))
-        self.var_list = var_list
+            self.add_slot(var, "Eg_sq")
 
-    def update_step(self, gradient, variable):
-        var_key = self._var_key(variable)
-        Eg = self.Eg_sq[self._index_dict[var_key]]
-        Eg.assign(self.beta * Eg + (1 - self.beta) * gradient**2)
-        variable.assign_sub((self.learning_rate * gradient) / sqrt(Eg))
+    @function
+    def _resource_apply_dense(self, grad, var):
+        """Update the slots and perform one optimization step for one model variable
+        """
+        var_dtype = var.dtype.base_dtype
+        lr_t = self._decayed_lr(var_dtype)  # handle learning rate decay
+        Eg_sq = self.get_slot(var, "Eg_sq")
+        beta = self._get_hyper("beta", var_dtype)
+        eps = self._get_hyper("eps", var_dtype)
+        Eg_sq.assign(beta * Eg_sq + (1.0 - beta) * grad ** 2)
+        var.assign_sub(lr_t * grad / (sqrt(Eg_sq) + eps))
+
+    def _resource_apply_sparse(self, grad, var):
+        # To be implemented if needed
+        raise NotImplementedError
 
     def get_config(self):
-        config = super().get_config()
-        config.update({
-            "learning_rate": self._serialize_hyperparameter(
-                self._learning_rate
-            ),
-            "beta": self.beta
-        })
-        return config
+        base_config = super().get_config()
+        return {
+            **base_config,
+            "learning_rate": self._serialize_hyperparameter(self._learning_rate),
+            "beta": self._serialize_hyperparameter(self.beta)
+        }
