@@ -34,7 +34,7 @@ class RMSProp(tf.train.Optimizer, ABC):
 
             #  update of squared gradient
             next_g_sq = (
-                    tf.multiply(self.rho, g_sq) + tf.multiply(1.0 - self.rho, grad ** 2))
+                    tf.multiply(self.rho, g_sq) + tf.multiply(1.0 - self.rho, tf.pow(grad, 2)))
 
             #  calculate the update based on grad and squared gradient
             update = grad / (tf.sqrt(next_g_sq) + self.eps)
